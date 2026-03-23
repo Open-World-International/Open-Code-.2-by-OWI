@@ -1,4 +1,4 @@
-# Open-Code
+# Open-Code Version 2
 
 A revolutionary platform designed for students and developers. It's completely free, removing financial barriers to coding tools.
 

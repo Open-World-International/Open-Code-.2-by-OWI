@@ -483,7 +483,7 @@ export default function App() {
               <Code2 className="text-white w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-white tracking-tight">Open-Code</h1>
+              <h1 className="text-xl font-semibold text-white tracking-tight">Open-Code Version 2</h1>
               <p className="text-[10px] text-gray-500 font-medium -mt-1">powered by OWI</p>
               {isSecretMode && (
                 <motion.div 
