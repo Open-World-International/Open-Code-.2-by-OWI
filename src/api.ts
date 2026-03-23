@@ -70,6 +70,11 @@ router.post('/execute', async (req, res) => {
             })
         });
 
+        if (!createRes.ok) {
+            const errorText = await createRes.text();
+            throw new Error(`Paiza API Create Error (${createRes.status}): ${errorText}`);
+        }
+
         const createData: any = await createRes.json();
         const id = createData.id;
 
@@ -87,6 +92,12 @@ router.post('/execute', async (req, res) => {
             await new Promise(resolve => setTimeout(resolve, 1000));
             
             const statusRes = await fetch(`https://api.paiza.io/runners/get_status?id=${id}&api_key=guest`);
+            
+            if (!statusRes.ok) {
+                const errorText = await statusRes.text();
+                throw new Error(`Paiza API Status Error (${statusRes.status}): ${errorText}`);
+            }
+
             const statusData: any = await statusRes.json();
             status = statusData.status;
         }
@@ -97,6 +108,12 @@ router.post('/execute', async (req, res) => {
 
         // Step 3: Get details
         const detailsRes = await fetch(`https://api.paiza.io/runners/get_details?id=${id}&api_key=guest`);
+        
+        if (!detailsRes.ok) {
+            const errorText = await detailsRes.text();
+            throw new Error(`Paiza API Details Error (${detailsRes.status}): ${errorText}`);
+        }
+
         const details: any = await detailsRes.json();
         
         res.json(details);

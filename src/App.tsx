@@ -152,6 +152,11 @@ export default function App() {
         })
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server Error (${response.status}): ${errorText}`);
+      }
+
       const data = await response.json();
       if (data.success) {
         setPublishUrl(data.url);
@@ -189,6 +194,11 @@ export default function App() {
           language: selectedLang.paizaId
         })
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server Error (${response.status}): ${errorText}`);
+      }
 
       const details = await response.json();
       
@@ -252,6 +262,12 @@ export default function App() {
             ]
           })
         });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Groq API Error (${response.status}): ${errorText}`);
+        }
+
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
         responseText = data.choices[0].message.content;
@@ -304,6 +320,11 @@ export default function App() {
         body: JSON.stringify({ password: adminPassword })
       });
       
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server Error (${response.status}): ${errorText}`);
+      }
+
       const data = await response.json();
       if (data.success) {
         setAdminKeys(data.keys);
