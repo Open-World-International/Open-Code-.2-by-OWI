@@ -85,11 +85,12 @@ router.post('/execute', async (req, res) => {
         // Step 2: Poll for completion
         let status = 'running';
         let attempts = 0;
-        const maxAttempts = 15;
+        const maxAttempts = 20;
+        const pollInterval = 500;
 
         while (status === 'running' && attempts < maxAttempts) {
             attempts++;
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, pollInterval));
             
             const statusRes = await fetch(`https://api.paiza.io/runners/get_status?id=${id}&api_key=guest`);
             
