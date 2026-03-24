@@ -57,9 +57,11 @@ router.post('/admin/keys', (req, res) => {
 // Code execution endpoint (Proxy to Paiza.io to avoid CORS)
 router.post('/execute', async (req, res) => {
     const { code, language } = req.body;
+    console.log(`[EXECUTE] Language: ${language}, Code length: ${code?.length}`);
 
     try {
         // Step 1: Create submission
+        console.log('[EXECUTE] Creating submission...');
         const createRes = await fetch('https://api.paiza.io/runners/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

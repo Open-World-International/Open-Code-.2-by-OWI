@@ -72,7 +72,7 @@ export default function App() {
   
   // AI State
   const [groqKey, setGroqKey] = useState<string>(() => localStorage.getItem('groq_api_key') || '');
-  const [geminiKey, setGeminiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
+  const [geminiKey, setGeminiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || process.env.GEMINI_API_KEY || '');
   const [activeAI, setActiveAI] = useState<'groq' | 'gemini'>('gemini');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
