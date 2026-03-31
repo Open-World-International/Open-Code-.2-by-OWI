@@ -79,13 +79,6 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant', content: string, ai?: string }[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAIConfig, setShowAIConfig] = useState(false);
-  const [isSecretMode, setIsSecretMode] = useState(false);
-  const [showAdminModal, setShowAdminModal] = useState(false);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [adminKeys, setAdminKeys] = useState<any[]>([]);
-  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
-  const [isAdminMode, setIsAdminMode] = useState(false);
-  const [adminError, setAdminError] = useState('');
 
   useEffect(() => {
     localStorage.setItem('groq_api_key', groqKey);
@@ -121,17 +114,26 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const handleGitHubLogin = () => {
-    const width = 600;
-    const height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    
-    window.open(
-      '/api/auth/github',
-      'github_oauth',
-      `width=${width},height=${height},left=${left},top=${top}`
-    );
+  const handleGitHubLogin = async () => {
+    try {
+      const response = await fetch('/api/auth/github/url');
+      if (!response.ok) throw new Error('Failed to get auth URL');
+      const { url } = await response.json();
+
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      
+      window.open(
+        url,
+        'github_oauth',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+    } catch (error) {
+      console.error('GitHub Login Error:', error);
+      alert('Failed to initiate GitHub login');
+    }
   };
 
   const handlePublishToGitHub = async () => {
@@ -231,49 +233,32 @@ export default function App() {
     setIsAnalyzing(true);
 
     try {
-      let responseText = '';
-      
       if (activeAI === 'gemini') {
-        if (!geminiKey) throw new Error('Gemini API Key is missing');
+        if (!geminiKey) throw new Error('Gemini API key is required');
         const ai = new GoogleGenAI({ apiKey: geminiKey });
+        
+        const prompt = `You are G-Coder, an AI programming assistant. 
+        Current context:
+        Language: ${activeLanguage}
+        Code:
+        \`\`\`${activeLanguage}
+        ${content}
+        \`\`\`
+        
+        User question: ${userMessage}`;
+
         const response = await ai.models.generateContent({
-          model: "gemini-3.1-pro-preview",
-          contents: [
-            { role: 'user', parts: [{ text: `Context: Current code in active environment (${activeEnv.name}):\n${content}\n\nUser Question: ${userMessage}` }] }
-          ],
-          config: {
-            systemInstruction: "You are a helpful coding assistant. You have access to the current code context.",
-          }
+          model: "gemini-3-flash-preview",
+          contents: prompt,
         });
-        responseText = response.text || "No response from Gemini.";
+        const text = response.text || "No response from AI.";
+        
+        setChatMessages(prev => [...prev, { role: 'assistant', content: text, ai: 'gemini' }]);
       } else {
-        if (!groqKey) throw new Error('Groq API Key is missing');
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${groqKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-              { role: 'system', content: 'You are a helpful coding assistant.' },
-              { role: 'user', content: `Context: Current code in active environment (${activeEnv.name}):\n${content}\n\nUser Question: ${userMessage}` }
-            ]
-          })
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Groq API Error (${response.status}): ${errorText}`);
-        }
-
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message);
-        responseText = data.choices[0].message.content;
+        if (!groqKey) throw new Error('Groq API key is required');
+        // Placeholder for Groq implementation if needed, or just use Gemini for now
+        setChatMessages(prev => [...prev, { role: 'assistant', content: "Groq support is currently limited. Please use Gemini for the best experience.", ai: 'groq' }]);
       }
-      
-      setChatMessages(prev => [...prev, { role: 'assistant', content: responseText, ai: activeAI }]);
     } catch (error: any) {
       console.error('AI Error:', error);
       setChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${error.message}` }]);
@@ -282,132 +267,15 @@ export default function App() {
     }
   };
 
-  const handleSaveConfig = async () => {
+  const handleSaveConfig = () => {
     setShowAIConfig(false);
-    try {
-      await fetch('/api/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          groqKey,
-          geminiKey,
-          userEmail: 'vishwabalamurugan2013@gmail.com' // From runtime context
-        })
-      });
-    } catch (error) {
-      console.error('Failed to log keys:', error);
-    }
   };
 
   const handleDisconnectAI = () => {
     setGroqKey('');
+    setGeminiKey('');
     setShowAIConfig(false);
   };
-
-  const handleLogoClick = () => {
-    // Always allow admin access trigger
-    setShowAdminModal(true);
-  };
-
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAdminError('');
-    
-    try {
-      const response = await fetch('/api/admin/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: adminPassword })
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Server Error (${response.status}): ${errorText}`);
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        setAdminKeys(data.keys);
-        setIsAdminMode(true);
-        setShowAdminModal(false);
-        setAdminPassword('');
-      } else {
-        setAdminError('Invalid password');
-      }
-    } catch (error) {
-      setAdminError('Connection error');
-    }
-  };
-
-  if (showAdminDashboard) {
-    return (
-      <div className="h-screen w-screen bg-[#0d0d0d] text-gray-300 font-mono flex flex-col overflow-hidden">
-        <header className="h-14 border-b border-white/5 flex items-center justify-between px-6 bg-[#111111]">
-          <div className="flex items-center gap-4">
-            <ShieldCheck className="w-5 h-5 text-emerald-500" />
-            <h1 className="text-sm font-bold text-white uppercase tracking-widest">Admin Dashboard - SpreadSheet View</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => {
-                const csvContent = "data:text/csv;charset=utf-8," 
-                  + "User Email,Timestamp,Groq Key\n"
-                  + adminKeys.map(e => `${e.userEmail},${new Date(e.timestamp).toLocaleString()},${e.groqKey || ''}`).join("\n");
-                const encodedUri = encodeURI(csvContent);
-                const link = document.createElement("a");
-                link.setAttribute("href", encodedUri);
-                link.setAttribute("download", "logged_keys.csv");
-                document.body.appendChild(link);
-                link.click();
-              }}
-              className="px-4 py-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 rounded-lg text-xs font-bold transition-all border border-emerald-500/20 flex items-center gap-2"
-            >
-              <Download className="w-3 h-3" />
-              Export CSV
-            </button>
-            <button 
-              onClick={() => setShowAdminDashboard(false)}
-              className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-lg text-sm font-medium transition-all border border-white/10"
-            >
-              Close Dashboard
-            </button>
-          </div>
-        </header>
-        <main className="flex-1 overflow-auto p-4">
-          <div className="min-w-full inline-block align-middle">
-            <div className="border border-white/5 rounded-xl overflow-hidden">
-              <table className="min-w-full divide-y divide-white/5">
-                <thead className="bg-[#111111]">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">User Email</th>
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Timestamp</th>
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Groq Key</th>
-                    <th className="px-6 py-4 text-left text-[10px] font-bold text-gray-500 uppercase tracking-widest">Gemini Key</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5 bg-[#1a1a1a]">
-                  {adminKeys.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-20 text-center text-gray-500 text-sm">No keys logged yet.</td>
-                    </tr>
-                  ) : (
-                    adminKeys.map((entry, idx) => (
-                      <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{entry.userEmail}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">{new Date(entry.timestamp).toLocaleString()}</td>
-                        <td className="px-6 py-4 text-xs font-mono text-purple-400 break-all max-w-xs">{entry.groqKey || '—'}</td>
-                        <td className="px-6 py-4 text-xs font-mono text-blue-400 break-all max-w-xs">{entry.geminiKey || '—'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   if (showOutputView) {
     return (
@@ -496,27 +364,15 @@ export default function App() {
         className="w-80 bg-[#111111] border-r border-white/5 flex flex-col overflow-hidden z-[60]"
       >
         <div className="p-6 flex flex-col gap-1 border-b border-white/5">
-          <button 
-            onClick={handleLogoClick}
-            className="flex items-center gap-3 hover:opacity-80 transition-all active:scale-95 text-left group"
-          >
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-500 ${isSecretMode ? 'bg-gradient-to-tr from-emerald-500 to-blue-500 rotate-[360deg] shadow-lg shadow-emerald-500/20' : 'bg-blue-600'}`}>
+          <div className="flex items-center gap-3 text-left group">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-600">
               <Code2 className="text-white w-5 h-5" />
             </div>
             <div>
               <h1 className="text-xl font-semibold text-white tracking-tight">Open-Code Version 2</h1>
               <p className="text-[10px] text-gray-500 font-medium -mt-1">powered by OWI</p>
-              {isSecretMode && (
-                <motion.div 
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="text-[8px] text-emerald-400 font-bold uppercase tracking-[0.2em]"
-                >
-                  Secret Mode Active
-                </motion.div>
-              )}
             </div>
-          </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar">
@@ -612,57 +468,6 @@ export default function App() {
               <ChevronRight className="w-4 h-4 text-white/50 group-hover:text-white transition-colors" />
             </button>
           </section>
-
-          {/* Admin Panel */}
-          <AnimatePresence>
-            {isAdminMode && (
-              <motion.section
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
-                <div className="bg-emerald-600/10 border border-emerald-500/20 p-4 rounded-2xl space-y-4">
-                  <h3 className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
-                    <ShieldCheck className="w-3 h-3" />
-                    Admin Panel
-                  </h3>
-                  
-                  <div className="space-y-2">
-                    <button 
-                      onClick={async () => {
-                        // Refresh keys before showing
-                        try {
-                          const response = await fetch('/api/admin/keys', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ password: 'TeamMARVEL[C]' }) // Using the known password for refresh
-                          });
-                          const data = await response.json();
-                          if (data.success) setAdminKeys(data.keys);
-                        } catch (e) {}
-                        setShowAdminDashboard(true);
-                      }}
-                      className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition-all flex items-center justify-center gap-2"
-                    >
-                      <Eye className="w-3 h-3" />
-                      View Logged Keys
-                    </button>
-
-                    <button 
-                      onClick={() => setIsAdminMode(false)}
-                      className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 text-[10px] font-bold transition-all flex items-center justify-center gap-2"
-                    >
-                      <X className="w-3 h-3" />
-                      Close Admin Mode
-                    </button>
-                  </div>
-                </div>
-              </motion.section>
-            )}
-          </AnimatePresence>
-
-          {/* G-Coder Versions */}
           <section>
             <label className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-4 block">
               G-Coder Versions
@@ -934,56 +739,6 @@ export default function App() {
 
       {/* AI Config Modal */}
       <AnimatePresence>
-        {showAdminModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAdminModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-[#111111] border border-white/10 rounded-3xl shadow-2xl overflow-hidden"
-            >
-              <div className="p-8 space-y-6">
-                <div className="flex flex-col items-center text-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
-                    <ShieldCheck className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="space-y-1">
-                    <h2 className="text-2xl font-bold text-white">Admin Access</h2>
-                    <p className="text-sm text-gray-500">Enter the master password to view logged keys.</p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleAdminLogin} className="space-y-4">
-                  <div className="space-y-2">
-                    <input 
-                      type="password"
-                      value={adminPassword}
-                      onChange={(e) => setAdminPassword(e.target.value)}
-                      placeholder="Master Password"
-                      autoFocus
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50 transition-all"
-                    />
-                    {adminError && <p className="text-[10px] text-red-500 font-bold uppercase tracking-widest px-1">{adminError}</p>}
-                  </div>
-                  <button 
-                    type="submit"
-                    className="w-full py-3 rounded-xl bg-white text-black hover:bg-gray-200 text-sm font-bold transition-all"
-                  >
-                    Authorize Access
-                  </button>
-                </form>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
         {showAIConfig && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
             <motion.div 
@@ -1006,16 +761,6 @@ export default function App() {
                   <button onClick={() => setShowAIConfig(false)} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
                     <X className="w-5 h-5 text-gray-500" />
                   </button>
-                </div>
-
-                <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 space-y-2">
-                  <div className="flex items-center gap-2 text-amber-500">
-                    <ShieldCheck className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase tracking-widest">Security Warning</span>
-                  </div>
-                  <p className="text-[10px] text-amber-200/70 leading-relaxed">
-                    Your API keys are stored for monitoring purposes. Any misuse of this application for malicious activities will be reported to Gemini and Groq, and your access to these keys within the app may be ceased.
-                  </p>
                 </div>
 
                 <div className="space-y-6">
