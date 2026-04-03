@@ -1,0 +1,24 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Stores user information, API keys, and roles.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "description": "User's email address." },
+        "displayName": { "type": "string", "description": "User's display name." },
+        "geminiKey": { "type": "string", "description": "User's Gemini API key." },
+        "groqKey": { "type": "string", "description": "User's Groq API key." },
+        "lastSeen": { "type": "string", "format": "date-time", "description": "Last time the user accessed the app." },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User's role in the application." }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile documents indexed by their Firebase Auth UID."
+    }
+  }
+}

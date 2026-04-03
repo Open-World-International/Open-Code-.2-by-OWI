@@ -26,10 +26,35 @@ import {
   Folder,
   Trash2,
   Edit2,
-  FileCode
+  FileCode,
+  LayoutDashboard,
+  LogOut,
+  LogIn,
+  Users
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
+import { 
+  auth, 
+  db, 
+  signInWithPopup, 
+  signOut, 
+  googleProvider, 
+  onAuthStateChanged, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  onSnapshot, 
+  collection, 
+  query, 
+  orderBy, 
+  limit, 
+  Timestamp, 
+  updateDoc,
+  User as FirebaseUser,
+  handleFirestoreError,
+  OperationType
+} from './firebase';
 
 const LANGUAGES = [
   { id: 'javascript', name: 'JavaScript', paizaId: 'javascript' },
@@ -79,6 +104,92 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant', content: string, ai?: string }[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAIConfig, setShowAIConfig] = useState(false);
+  
+  // Firebase State
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showMaintenance, setShowMaintenance] = useState(false);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        // Check if admin
+        const adminEmail = "vishwabalamurugan2013@gmail.com";
+        const isUserAdmin = currentUser.email === adminEmail;
+        setIsAdmin(isUserAdmin);
+
+        // Sync data from Firestore
+        try {
+          const userDocRef = doc(db, 'users', currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+          
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            if (userData.geminiKey) setGeminiKey(userData.geminiKey);
+            if (userData.groqKey) setGroqKey(userData.groqKey);
+            
+            // Update last seen
+            await updateDoc(userDocRef, {
+              lastSeen: Timestamp.now()
+            });
+          } else {
+            // Create initial profile
+            await setDoc(userDocRef, {
+              email: currentUser.email,
+              displayName: currentUser.displayName,
+              role: isUserAdmin ? 'admin' : 'user',
+              lastSeen: Timestamp.now(),
+              geminiKey: '',
+              groqKey: ''
+            });
+          }
+        } catch (error) {
+          handleFirestoreError(error, OperationType.GET, 'users/' + currentUser.uid);
+        }
+      } else {
+        setIsAdmin(false);
+        setGeminiKey('');
+        setGroqKey('');
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Admin: Listen to all users
+  useEffect(() => {
+    if (isAdmin && showMaintenance) {
+      const q = query(collection(db, 'users'), orderBy('lastSeen', 'desc'), limit(50));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setAllUsers(usersList);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users');
+      });
+      return () => unsubscribe();
+    }
+  }, [isAdmin, showMaintenance]);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error('Login Error:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setShowMaintenance(false);
+    } catch (error) {
+      console.error('Logout Error:', error);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('groq_api_key', groqKey);
@@ -294,7 +405,17 @@ export default function App() {
     }
   };
 
-  const handleSaveConfig = () => {
+  const handleSaveConfig = async () => {
+    if (user) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid), {
+          geminiKey,
+          groqKey
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'users/' + user.uid);
+      }
+    }
     setShowAIConfig(false);
   };
 
@@ -403,6 +524,50 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar">
+          {/* User Profile */}
+          <section className="p-4 bg-white/5 rounded-2xl border border-white/10">
+            {user ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <img src={user.photoURL || ''} alt="Profile" className="w-10 h-10 rounded-xl border border-white/10" referrerPolicy="no-referrer" />
+                  <div className="overflow-hidden">
+                    <div className="text-xs font-bold text-white truncate">{user.displayName}</div>
+                    <div className="text-[10px] text-gray-500 truncate">{user.email}</div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {isAdmin && (
+                    <button 
+                      onClick={() => setShowMaintenance(true)}
+                      className="flex-1 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 text-[10px] font-bold transition-all border border-emerald-500/20 flex items-center justify-center gap-2"
+                    >
+                      <LayoutDashboard className="w-3 h-3" />
+                      Admin
+                    </button>
+                  )}
+                  <button 
+                    onClick={handleLogout}
+                    className="flex-1 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 text-[10px] font-bold transition-all border border-red-500/20 flex items-center justify-center gap-2"
+                  >
+                    <LogOut className="w-3 h-3" />
+                    Logout
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[10px] text-gray-500 text-center">Login to sync your API keys and projects.</p>
+                <button 
+                  onClick={handleLogin}
+                  className="w-full py-3 rounded-xl bg-white text-black hover:bg-gray-200 text-xs font-bold transition-all flex items-center justify-center gap-2"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Login with Google
+                </button>
+              </div>
+            )}
+          </section>
+
           {/* Environment Selection */}
           <section>
             <label className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-4 block">
@@ -864,6 +1029,98 @@ export default function App() {
                 </div>
               </div>
             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Maintenance Dashboard */}
+      <AnimatePresence>
+        {showMaintenance && isAdmin && (
+          <div className="fixed inset-0 z-[100] bg-[#0d0d0d] flex flex-col overflow-hidden">
+            <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-[#111111]">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
+                  <LayoutDashboard className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Maintenance Dashboard</h2>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest">Admin Control Panel</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowMaintenance(false)}
+                className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+              >
+                <X className="w-6 h-6 text-gray-500" />
+              </button>
+            </header>
+
+            <main className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+              <div className="max-w-6xl mx-auto space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white/5 border border-white/10 p-6 rounded-3xl">
+                    <div className="text-gray-500 text-[10px] uppercase font-bold mb-1">Total Users</div>
+                    <div className="text-3xl font-bold text-white">{allUsers.length}</div>
+                  </div>
+                  {/* Add more stats if needed */}
+                </div>
+
+                <div className="bg-[#111111] border border-white/10 rounded-3xl overflow-hidden">
+                  <div className="p-6 border-b border-white/10 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-500" />
+                      User Management
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-white/5 text-[10px] uppercase tracking-widest text-gray-500 font-bold">
+                          <th className="px-6 py-4">User</th>
+                          <th className="px-6 py-4">Role</th>
+                          <th className="px-6 py-4">Gemini Key</th>
+                          <th className="px-6 py-4">Groq Key</th>
+                          <th className="px-6 py-4">Last Seen</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {allUsers.map((u) => (
+                          <tr key={u.id} className="text-xs text-gray-400 hover:bg-white/[0.02] transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-bold text-white">
+                                  {u.email?.[0].toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="text-white font-medium">{u.displayName || 'Anonymous'}</div>
+                                  <div className="text-[10px] text-gray-500">{u.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                u.role === 'admin' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'
+                              }`}>
+                                {u.role}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 font-mono text-[10px]">
+                              {u.geminiKey ? `${u.geminiKey.substring(0, 8)}...` : <span className="text-gray-700">Not Set</span>}
+                            </td>
+                            <td className="px-6 py-4 font-mono text-[10px]">
+                              {u.groqKey ? `${u.groqKey.substring(0, 8)}...` : <span className="text-gray-700">Not Set</span>}
+                            </td>
+                            <td className="px-6 py-4 text-[10px]">
+                              {u.lastSeen?.toDate().toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </main>
           </div>
         )}
       </AnimatePresence>
