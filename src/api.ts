@@ -116,7 +116,7 @@ router.post('/publish', async (req, res) => {
     }
 });
 
-// Code execution endpoint (Proxy to Paiza.io to avoid CORS)
+// Code execution endpoint (Step 1: Create submission)
 router.post('/execute', async (req, res) => {
     const { code, language } = req.body;
     console.log(`[EXECUTE] Language: ${language}, Code length: ${code?.length}`);
@@ -126,7 +126,6 @@ router.post('/execute', async (req, res) => {
     }
 
     try {
-        // Step 1: Create submission
         console.log('[EXECUTE] Creating submission...');
         const createRes = await fetch('https://api.paiza.io/runners/create', {
             method: 'POST',
@@ -144,50 +143,40 @@ router.post('/execute', async (req, res) => {
         }
 
         const createData: any = await createRes.json();
-        const id = createData.id;
-
-        if (!id) {
-            return res.status(500).json({ error: 'Failed to create execution task.' });
-        }
-
-        // Step 2: Poll for completion
-        let status = 'running';
-        let attempts = 0;
-        const maxAttempts = 15; // Reduced to fit within serverless limits
-        const pollInterval = 1000; // Increased interval for efficiency
-
-        while (status === 'running' && attempts < maxAttempts) {
-            attempts++;
-            await new Promise(resolve => setTimeout(resolve, pollInterval));
-            
-            const statusRes = await fetch(`https://api.paiza.io/runners/get_status?id=${id}&api_key=guest`);
-            
-            if (!statusRes.ok) {
-                const errorText = await statusRes.text();
-                throw new Error(`Execution Status Error (${statusRes.status}): ${errorText}`);
-            }
-
-            const statusData: any = await statusRes.json();
-            status = statusData.status;
-        }
-
-        if (status === 'running') {
-            return res.status(504).json({ error: 'Execution timed out. The code might be taking too long to run.' });
-        }
-
-        // Step 3: Get details
-        const detailsRes = await fetch(`https://api.paiza.io/runners/get_details?id=${id}&api_key=guest`);
-        
-        if (!detailsRes.ok) {
-            const errorText = await detailsRes.text();
-            throw new Error(`Execution Details Error (${detailsRes.status}): ${errorText}`);
-        }
-
-        const details: any = await detailsRes.json();
-        
-        res.json(details);
+        res.json(createData); // Returns { id: "...", status: "running" }
     } catch (error) {
         console.error('Proxy Execution Error:', error);
+        res.status(500).json({ error: error instanceof Error ? error.message : 'Internal Server Error' });
+    }
+});
+
+// Status and details endpoint (Step 2: Check status and get results)
+router.get('/status/:id', async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Check status
+        const statusRes = await fetch(`https://api.paiza.io/runners/get_status?id=${id}&api_key=guest`);
+        if (!statusRes.ok) {
+            const errorText = await statusRes.text();
+            throw new Error(`Status Check Error (${statusRes.status}): ${errorText}`);
+        }
+        const statusData: any = await statusRes.json();
+
+        if (statusData.status === 'running') {
+            return res.json({ status: 'running' });
+        }
+
+        // If finished, get details
+        const detailsRes = await fetch(`https://api.paiza.io/runners/get_details?id=${id}&api_key=guest`);
+        if (!detailsRes.ok) {
+            const errorText = await detailsRes.text();
+            throw new Error(`Details Fetch Error (${detailsRes.status}): ${errorText}`);
+        }
+        const details: any = await detailsRes.json();
+        res.json(details);
+    } catch (error) {
+        console.error('Status Check Error:', error);
         res.status(500).json({ error: error instanceof Error ? error.message : 'Internal Server Error' });
     }
 });

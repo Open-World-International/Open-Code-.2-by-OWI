@@ -72,7 +72,7 @@ export default function App() {
   
   // AI State
   const [groqKey, setGroqKey] = useState<string>(() => localStorage.getItem('groq_api_key') || '');
-  const [geminiKey, setGeminiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || process.env.GEMINI_API_KEY || '');
+  const [geminiKey, setGeminiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
   const [activeAI, setActiveAI] = useState<'groq' | 'gemini'>('gemini');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
@@ -202,12 +202,39 @@ export default function App() {
         throw new Error(`Server Error (${response.status}): ${errorText}`);
       }
 
-      const details = await response.json();
-      
-      if (details.error) {
-        throw new Error(details.error);
+      const createData = await response.json();
+      const id = createData.id;
+
+      if (!id) {
+        throw new Error('Failed to create execution task.');
       }
 
+      // Step 2: Poll for completion from the frontend
+      let status = 'running';
+      let attempts = 0;
+      const maxAttempts = 30; // More attempts allowed from frontend
+      const pollInterval = 1500; // 1.5s interval
+      let details: any = null;
+
+      while (status === 'running' && attempts < maxAttempts) {
+        attempts++;
+        setOutput(`Running... (Attempt ${attempts}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        
+        const statusRes = await fetch(`/api/status/${id}`);
+        if (!statusRes.ok) {
+          const errorText = await statusRes.text();
+          throw new Error(`Status Check Error (${statusRes.status}): ${errorText}`);
+        }
+
+        details = await statusRes.json();
+        status = details.status;
+      }
+
+      if (status === 'running') {
+        throw new Error('Execution timed out. The code might be taking too long to run.');
+      }
+      
       const stdout = details.stdout || '';
       const stderr = details.stderr || '';
       const build_stderr = details.build_stderr || '';
@@ -475,31 +502,39 @@ export default function App() {
             <div className="space-y-2">
               <button
                 onClick={() => {
-                  setActiveAI('gemini');
-                  setIsChatOpen(true);
+                  if (!geminiKey) {
+                    setShowAIConfig(true);
+                  } else {
+                    setActiveAI('gemini');
+                    setIsChatOpen(true);
+                  }
                 }}
                 className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
-                  activeAI === 'gemini' && isChatOpen
+                  activeAI === 'gemini' && isChatOpen && geminiKey
                     ? 'bg-blue-600/10 border-blue-500/50 text-white'
                     : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-600">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${geminiKey ? 'bg-blue-600' : 'bg-gray-600'}`}>
                     <Sparkles className="w-4 h-4 text-white" />
                   </div>
                   <div className="text-left">
                     <div className="text-xs font-bold">Gemini 3.1 Pro</div>
-                    <div className="text-[9px] opacity-60">Advanced reasoning</div>
+                    <div className="text-[9px] opacity-60">{geminiKey ? 'Advanced reasoning' : 'Setup required'}</div>
                   </div>
                 </div>
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                {geminiKey ? <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> : <Plus className="w-3 h-3" />}
               </button>
 
               <button
                 onClick={() => {
-                  setActiveAI('groq');
-                  setIsChatOpen(true);
+                  if (!groqKey) {
+                    setShowAIConfig(true);
+                  } else {
+                    setActiveAI('groq');
+                    setIsChatOpen(true);
+                  }
                 }}
                 className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${
                   activeAI === 'groq' && isChatOpen
@@ -755,7 +790,7 @@ export default function App() {
                     </div>
                     <div>
                       <h2 className="text-xl font-bold text-white">AI Configuration</h2>
-                      <p className="text-xs text-gray-500">Set up your API keys to unlock G-Coder.</p>
+                      <p className="text-[11px] text-gray-500">Enter your own API keys to unlock Gemini and Groq features.</p>
                     </div>
                   </div>
                   <button onClick={() => setShowAIConfig(false)} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
